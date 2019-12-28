@@ -28,11 +28,11 @@ def build_model(action_size, shape, learning_rate=1e-4):
     
     return model
 
-def predict_action(model, explore_start, explore_stop, decay_rate, decay_step, state, possible_actions):
+def predict_action(model, decay_step, state, possible_actions):
     # EPSILON GREEDY STRATEGY
     # Choose action a from state s using epsilon greedy.
     exp_exp_tradeoff = np.random.rand()
-    explore_probability = explore_stop + (explore_start - explore_stop) * np.exp(-decay_rate * decay_step)
+    explore_probability = EXPLORE_STOP + (EXPLORE_START - EXPLORE_STOP) * np.exp(-DECAY_RATE * decay_step)
     
     if (explore_probability > exp_exp_tradeoff):
         choice = random.randint(1,len(possible_actions))-1
@@ -49,11 +49,7 @@ def train(env, model, rows, cols, possible_actions):
     # print(stacked_state.shape)
     # stacked_state = stacked_state.reshape(1, stacked_state.shape[0], stacked_state.shape[1], stacked_state.shape[2]) 
     # print(stacked_state.shape)
-
-    explore_start = 1.0
-    explore_stop = 0.01 
-    decay_rate = 0.00001
-    gamma = 0.9
+ 
     max_steps = 50000
     total_episodes = 50
     batch_size = 64
@@ -75,7 +71,7 @@ def train(env, model, rows, cols, possible_actions):
             print(step)
             step += 1
             decay_step +=1
-            action, explore_probability = predict_action(model, explore_start, explore_stop, decay_rate, decay_step, state, possible_actions)
+            action, explore_probability = predict_action(model, decay_step, state, possible_actions)
             next_state, reward, done, _ = env.step(action)
             
             episode_rewards.append(reward)
@@ -111,7 +107,7 @@ def train(env, model, rows, cols, possible_actions):
                 if terminal:
                     target_Qs_batch.append([a * rewards_mb[i] for a in actions_mb[i]])
                 else:
-                    target = rewards_mb[i] + gamma * np.max(Qs_next_state[i])
+                    target = rewards_mb[i] + GAMMA * np.max(Qs_next_state[i])
                     target_Qs_batch.append([a * target for a in actions_mb[i]])
 
             targets_mb = np.array([each for each in target_Qs_batch])
