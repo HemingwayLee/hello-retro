@@ -50,15 +50,11 @@ def train(env, model, rows, cols, possible_actions):
     # stacked_state = stacked_state.reshape(1, stacked_state.shape[0], stacked_state.shape[1], stacked_state.shape[2]) 
     # print(stacked_state.shape)
  
-    max_steps = 50000
-    total_episodes = 50
-    batch_size = 64
-
     memory = Memory(memory_size=1000000)
-    memory.instantiate_memory(batch_size, env, rows, cols, STACK_SIZE, possible_actions)
+    memory.instantiate_memory(BATCH_SIZE, env, rows, cols, STACK_SIZE, possible_actions)
     
     decay_step = 0
-    for episode in range(50):
+    for episode in range(TOTAL_EPISODES):
         loss = 0
         step = 0
         episode_rewards = []
@@ -67,7 +63,7 @@ def train(env, model, rows, cols, possible_actions):
         stacked_frames = deque([np.zeros((rows, cols), dtype=np.int) for i in range(STACK_SIZE)], maxlen=STACK_SIZE)
         state, stacked_frames = stack_frames(stacked_frames, state, True, (rows, cols), STACK_SIZE)
         
-        while step < max_steps:
+        while step < MAX_STEPS:
             print(step)
             step += 1
             decay_step +=1
@@ -79,7 +75,7 @@ def train(env, model, rows, cols, possible_actions):
             if done:
                 next_state = np.zeros((rows, cols, 3), dtype=np.uint8) # data type need to be correct
                 next_state, stacked_frames = stack_frames(stacked_frames, next_state, False, (rows, cols), STACK_SIZE)
-                step = max_steps
+                step = MAX_STEPS
                 total_reward = np.sum(episode_rewards)
                 print(f'Episode: {episode}, Total reward: {total_reward}, Explore P: {explore_probability}, Training Loss {loss}')
 
@@ -92,7 +88,7 @@ def train(env, model, rows, cols, possible_actions):
                 
             ### LEARNING PART            
             # Obtain random mini-batch from memory
-            batch = memory.sample(batch_size)
+            batch = memory.sample(BATCH_SIZE)
 
             states_mb = np.array([each[0] for each in batch], ndmin=3)
             actions_mb = np.array([each[1] for each in batch])
