@@ -20,7 +20,8 @@ class Memory():
         index = np.random.choice(np.arange(len(self.buffer)), size=batch_size, replace=False)
         return [self.buffer[i] for i in index]
 
-def instantiate_memory(memory, pretrain_length, env, rows, cols, stack_size, possible_actions):
+def instantiate_memory(pretrain_length, env, rows, cols, stack_size, possible_actions):
+    memory = Memory(memory_size=1000000)
     for i in range(pretrain_length):
         if i == 0:
             state = env.reset() 
@@ -36,11 +37,12 @@ def instantiate_memory(memory, pretrain_length, env, rows, cols, stack_size, pos
         next_state, stacked_frames = stack_frames(stacked_frames, next_state, False, (rows, cols), stack_size)
         
         if done:
-            next_state = np.zeros(state.shape)
+            next_state = np.zeros((rows, cols, 3), dtype=np.uint8) # data type need to be correct
             memory.add((state, action, reward, next_state, done))
             state = env.reset()
             state, stacked_frames = stack_frames(stacked_frames, state, True, (rows, cols), stack_size)
         else:
+            # print("not done")
             memory.add((state, action, reward, next_state, done))
             state = next_state
 
@@ -48,15 +50,15 @@ def instantiate_memory(memory, pretrain_length, env, rows, cols, stack_size, pos
 
 def preprocess(frame):
     # TODO:
-    # resize
     # chop
     # rescale
     # x_t1 = skimage.exposure.rescale_intensity(x_t1, out_range=(0, 255))
     # x_t1 = x_t1 / 255.0
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    print(gray.shape)
+    resized = cv2.resize(gray, (int(gray.shape[1]/4), int(gray.shape[0]/4)), interpolation=cv2.INTER_AREA)
+    # print(gray.shape)
 
-    return gray
+    return resized
 
 def stack_frames(stacked_frames, observation, is_new_episode, shape, stack_size):
     frame = preprocess(observation)
@@ -84,13 +86,32 @@ def build_model(action_size, shape, learning_rate=1e-4):
     model.add(Convolution2D(64, 3, 3, subsample=(1, 1), border_mode='same'))
     model.add(Activation('relu'))
     model.add(Flatten())
-    model.add(Dense(512))
+    model.add(Dense(256))
     model.add(Activation('relu'))
     model.add(Dense(action_size))
 
     model.compile(loss='mse', optimizer=Adam(lr=learning_rate))
     
     return model
+
+def predict_action(model, explore_start, explore_stop, decay_rate, decay_step, state, possible_actions):
+    ## EPSILON GREEDY STRATEGY
+    # Choose action a from state s using epsilon greedy.
+    ## First we randomize a number
+    exp_exp_tradeoff = np.random.rand()
+    explore_probability = explore_stop + (explore_start - explore_stop) * np.exp(-decay_rate * decay_step)
+    
+    if (explore_probability > exp_exp_tradeoff):
+        choice = random.randint(1,len(possible_actions))-1
+        action = possible_actions[choice]
+    else:
+        # Qs = sess.run(DQNetwork.output, feed_dict = {DQNetwork.inputs_: state.reshape((1, *state.shape))})
+        # Take the biggest Q value (= the best action)
+        Qs = model.predict(state.reshape(1, state.shape[0], state.shape[1], state.shape[2]))
+        choice = np.argmax(Qs)
+        action = possible_actions[choice]
+       
+    return action, explore_probability
 
 def train_network(mode):
     env = retro.make(game='Airstriker-Genesis')
@@ -101,113 +122,99 @@ def train_network(mode):
     print(f"possible actions:\n{possible_actions}")
 
     observation = env.reset()
-    rows, cols = observation.shape[0], observation.shape[1]
+    rows, cols = int(observation.shape[0]/4), int(observation.shape[1]/4)
+    print(rows, cols)
     
     stack_size = 4
     stacked_frames = deque([np.zeros((rows, cols), dtype=np.int) for i in range(stack_size)], maxlen=stack_size)
-    stacked_state, stacked_frames = stack_frames(stacked_frames, observation, True, (rows, cols), stack_size)
+    # stacked_state, stacked_frames = stack_frames(stacked_frames, observation, True, (rows, cols), stack_size)
+    _, stacked_frames = stack_frames(stacked_frames, observation, True, (rows, cols), stack_size)
 
     model = build_model(env.action_space.n, (rows, cols, stack_size))
 
-    if mode == 'run':
-        print ("Now we load weight")
-        print ("Weight load successfully")    
-    else:
-        print("training mode")
+    # if mode == 'run':
+    #     print ("Now we load weight")
+    #     print ("Weight load successfully")    
+    # else:
+    #     print("training mode")
 
-    print("stacked state shape:")
-    print(stacked_state.shape)
-    stacked_state = stacked_state.reshape(1, stacked_state.shape[0], stacked_state.shape[1], stacked_state.shape[2]) 
-    print(stacked_state.shape)
+    # print("stacked state shape:")
+    # print(stacked_state.shape)
+    # stacked_state = stacked_state.reshape(1, stacked_state.shape[0], stacked_state.shape[1], stacked_state.shape[2]) 
+    # print(stacked_state.shape)
 
+    explore_start = 1.0
+    explore_stop = 0.01 
+    decay_rate = 0.00001
+
+    gamma = 0.9
+    max_steps = 50000
+    total_episodes = 50
     batch_size = 64
-    memory = Memory(memory_size=1000000)
-    memory = instantiate_memory(memory, batch_size, env, rows, cols, stack_size, possible_actions)
-    print(memory.buffer)
+    memory = instantiate_memory(batch_size, env, rows, cols, stack_size, possible_actions)
+    
+    if mode == 'train':
+        decay_step = 0
+        
+        for episode in range(50):
+            loss = 0
+            step = 0
+            episode_rewards = []
+            state = env.reset()
+            state, stacked_frames = stack_frames(stacked_frames, state, True, (rows, cols), stack_size)
+            
+            while step < max_steps:
+                print(step)
+                step += 1
+                decay_step +=1
+                action, explore_probability = predict_action(model, explore_start, explore_stop, decay_rate, decay_step, state, possible_actions)
+                next_state, reward, done, _ = env.step(action)
+                
+                # if True: #always render
+                #     env.render()
+                
+                episode_rewards.append(reward)
+                
+                if done:
+                    next_state = np.zeros((rows, cols, 3), dtype=np.uint8) # data type need to be correct
+                    next_state, stacked_frames = stack_frames(stacked_frames, next_state, False, (rows, cols), stack_size)
+                    step = max_steps
+                    total_reward = np.sum(episode_rewards)
+                    print(f'Episode: {episode}, Total reward: {total_reward}, Explore P: {explore_probability}, Training Loss {loss}')
 
-    # t = 0
-    # FRAME_PER_ACTION = 1
-    # while True:
-    #     loss = 0
-    #     Q_sa = 0
-    #     action_index = 0
-    #     r_t = 0
-    #     a_t = np.zeros([env.action_space.n])
-    #     # Choose an action epsilon greedy
-    #     if t % FRAME_PER_ACTION == 0:
-    #         if random.random() <= epsilon:
-    #             print("----------Random Action----------")
-    #             action_index = random.randrange(env.action_space.n)
-    #             a_t[action_index] = 1
-    #         else:
-    #             q = model.predict(s_t) # input a stack of 4 images, get the prediction
-    #             max_Q = np.argmax(q)
-    #             action_index = max_Q
-    #             a_t[max_Q] = 1
+                    # rewards_list.append((episode, total_reward))
+                    memory.add((state, action, reward, next_state, done))
+                else:
+                    next_state, stacked_frames = stack_frames(stacked_frames, next_state, False, (rows, cols), stack_size)
+                    memory.add((state, action, reward, next_state, done))
+                    state = next_state
+                    
+                ### LEARNING PART            
+                # Obtain random mini-batch from memory
+                batch = memory.sample(batch_size)
 
-    #     # We reduced the epsilon gradually
-    #     if epsilon > FINAL_EPSILON and t > OBSERVE:
-    #         epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE
+                states_mb = np.array([each[0] for each in batch], ndmin=3)
+                actions_mb = np.array([each[1] for each in batch])
+                rewards_mb = np.array([each[2] for each in batch]) 
+                next_states_mb = np.array([each[3] for each in batch], ndmin=3)
+                dones_mb = np.array([each[4] for each in batch])
 
-    #     observation, reword, done, info = env.step(env.action_space.sample())
-    #     env.render()
-    #     if done:
-    #         observation = env.reset()
+                target_Qs_batch = []
+                Qs_next_state = [model.predict(nsmb.reshape(1, nsmb.shape[0], nsmb.shape[1], nsmb.shape[2])) for nsmb in next_states_mb]
+                for i in range(0, len(batch)):
+                    terminal = dones_mb[i]
+                    if terminal:
+                        target_Qs_batch.append([a * rewards_mb[i] for a in actions_mb[i]])
+                    else:
+                        target = rewards_mb[i] + gamma * np.max(Qs_next_state[i])
+                        target_Qs_batch.append([a * target for a in actions_mb[i]])
 
-    #     #run the selected action and observed next state and reward
-    #     # x_t1_colored, r_t, terminal = game_state.frame_step(a_t)
-    #     # x_t1 = skimage.color.rgb2gray(x_t1_colored)
-    #     # x_t1 = skimage.transform.resize(x_t1,(80,80))
-    #     # x_t1 = skimage.exposure.rescale_intensity(x_t1, out_range=(0, 255))
-    #     # x_t1 = x_t1 / 255.0
-    #     # x_t1 = x_t1.reshape(1, x_t1.shape[0], x_t1.shape[1], 1) #1x80x80x1
-    #     # s_t1 = np.append(x_t1, s_t[:, :, :, :3], axis=3)
+                targets_mb = np.array([each for each in target_Qs_batch])
+                loss += model.train_on_batch(states_mb, targets_mb)
 
-    #     # store the transition in D
-    #     D.append((s_t, action_index, r_t, s_t1, terminal))
-    #     if len(D) > REPLAY_MEMORY:
-    #         D.popleft()
-
-    #     #only train if done observing
-    #     if t > OBSERVE:
-    #         #sample a minibatch to train on
-    #         minibatch = random.sample(D, BATCH)
-
-    #         #Now we do the experience replay
-    #         state_t, action_t, reward_t, state_t1, terminal = zip(*minibatch)
-    #         state_t = np.concatenate(state_t)
-    #         state_t1 = np.concatenate(state_t1)
-    #         targets = model.predict(state_t)
-    #         Q_sa = model.predict(state_t1)
-    #         targets[range(BATCH), action_t] = reward_t + GAMMA*np.max(Q_sa, axis=1)*np.invert(terminal)
-
-    #         loss += model.train_on_batch(state_t, targets)
-
-    #     # s_t = s_t1
-    #     t = t + 1
-
-    #     # save progress every 10000 iterations
-    #     # if t % 1000 == 0:
-    #     #     print("Now we save model")
-    #     #     model.save_weights("model.h5", overwrite=True)
-    #     #     with open("model.json", "w") as outfile:
-    #     #         json.dump(model.to_json(), outfile)
-
-    #     # print info
-    #     state = ""
-    #     if t <= OBSERVE:
-    #         state = "observe"
-    #     elif t > OBSERVE and t <= OBSERVE + EXPLORE:
-    #         state = "explore"
-    #     else:
-    #         state = "train"
-
-    #     print("TIMESTEP", t, "/ STATE", state, \
-    #         "/ EPSILON", epsilon, "/ ACTION", action_index, "/ REWARD", r_t, \
-    #         "/ Q_MAX " , np.max(Q_sa), "/ Loss ", loss)
-
-    # env.close()
-    # print("Episode finished!")
+            # if episode % 5 == 0:
+            #     save_path = saver.save(sess, "./models/model.ckpt")
+            #     print("Model Saved")
 
 
 if __name__ == "__main__":
