@@ -4,7 +4,7 @@ import retro
 def main():
     print(retro.data.list_games())
 
-    env = retro.make(game='Airstriker-Genesis')
+    env = retro.make(game='Breakout-Atari2600')
     print(f"The size of our frame is: {env.observation_space}")
     print(f"The action size is : {env.action_space.n}")
 
