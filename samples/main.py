@@ -1,6 +1,7 @@
 import retro
 import sys
 import random
+import json
 import numpy as np
 from collections import deque
 from keras.models import Sequential
@@ -91,11 +92,13 @@ def train(env, model, rows, cols, possible_actions):
             decay_step +=1
             action, explore_probability = predict_action(model, decay_step, state, possible_actions)
             next_state, reward, done, _ = env.step(action)
+
+            env.render()
             
             episode_rewards.append(reward)
             
             if done:
-                next_state = np.zeros((rows, cols, 3), dtype=np.uint8) # data type need to be correct
+                # next_state = np.zeros((rows, cols, 3), dtype=np.uint8) # data type need to be correct
                 next_state, stacked_frames = stack_frames(stacked_frames, next_state, False, (rows, cols), STACK_SIZE)
                 step = MAX_STEPS
                 total_reward = np.sum(episode_rewards)
@@ -110,12 +113,38 @@ def train(env, model, rows, cols, possible_actions):
                 
             loss += do_training(model, memory)
 
-        # if episode % 5 == 0:
-        #     save_path = saver.save(sess, "./models/model.ckpt")
-        #     print("Model Saved")
+        if episode % 5 == 0:
+            print("Save the model now")
+            model.save_weights(f"model.{episode}.h5", overwrite=True)
+            with open("model.json", "w") as outfile:
+                json.dump(model.to_json(), outfile)
 
-def run():
-    print("TODO")
+def run(env, model, rows, cols, possible_actions, filename="model.0.h5"):
+    model.load_weights(filename)
+    
+    state = env.reset()
+    stacked_frames = deque([np.zeros((rows, cols), dtype=np.int) for i in range(STACK_SIZE)], maxlen=STACK_SIZE)
+    state, stacked_frames = stack_frames(stacked_frames, state, True, (rows, cols), STACK_SIZE)
+    
+    total_rewards = 0
+    while True:
+        Qs = model.predict(state.reshape(1, state.shape[0], state.shape[1], state.shape[2]))
+        choice = np.argmax(Qs)
+        action = possible_actions[choice]
+        
+        next_state, reward, done, _ = env.step(action)
+        env.render()
+
+        total_rewards += reward
+
+        if done:
+            print(f"The Score is {total_rewards}")
+            break
+            
+        next_state, stacked_frames = stack_frames(stacked_frames, next_state, False, (rows, cols), STACK_SIZE)
+        state = next_state
+
+    env.close()
 
 def main(mode):
     env = retro.make(game='Airstriker-Genesis')
@@ -134,7 +163,7 @@ def main(mode):
     if mode == 'train':
         train(env, model, rows, cols, possible_actions)
     elif mode == 'run':
-        run()
+        run(env, model, rows, cols, possible_actions)
     else:
         print("Incorrect mode")
 
