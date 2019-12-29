@@ -44,6 +44,28 @@ def predict_action(model, decay_step, state, possible_actions):
        
     return action, explore_probability
 
+def do_training(model, memory):
+    batch = memory.sample(BATCH_SIZE)
+
+    states_mb = np.array([each[0] for each in batch], ndmin=3)
+    actions_mb = np.array([each[1] for each in batch])
+    rewards_mb = np.array([each[2] for each in batch]) 
+    next_states_mb = np.array([each[3] for each in batch], ndmin=3)
+    dones_mb = np.array([each[4] for each in batch])
+
+    target_Qs_batch = []
+    Qs_next_state = [model.predict(nsmb.reshape(1, nsmb.shape[0], nsmb.shape[1], nsmb.shape[2])) for nsmb in next_states_mb]
+    for i in range(0, len(batch)):
+        terminal = dones_mb[i]
+        if terminal:
+            target_Qs_batch.append([a * rewards_mb[i] for a in actions_mb[i]])
+        else:
+            target = rewards_mb[i] + GAMMA * np.max(Qs_next_state[i])
+            target_Qs_batch.append([a * target for a in actions_mb[i]])
+
+    targets_mb = np.array([each for each in target_Qs_batch])
+    return model.train_on_batch(states_mb, targets_mb)
+
 def train(env, model, rows, cols, possible_actions):
     # print("stacked state shape:")
     # print(stacked_state.shape)
@@ -86,28 +108,7 @@ def train(env, model, rows, cols, possible_actions):
                 memory.add((state, action, reward, next_state, done))
                 state = next_state
                 
-            ### LEARNING PART            
-            # Obtain random mini-batch from memory
-            batch = memory.sample(BATCH_SIZE)
-
-            states_mb = np.array([each[0] for each in batch], ndmin=3)
-            actions_mb = np.array([each[1] for each in batch])
-            rewards_mb = np.array([each[2] for each in batch]) 
-            next_states_mb = np.array([each[3] for each in batch], ndmin=3)
-            dones_mb = np.array([each[4] for each in batch])
-
-            target_Qs_batch = []
-            Qs_next_state = [model.predict(nsmb.reshape(1, nsmb.shape[0], nsmb.shape[1], nsmb.shape[2])) for nsmb in next_states_mb]
-            for i in range(0, len(batch)):
-                terminal = dones_mb[i]
-                if terminal:
-                    target_Qs_batch.append([a * rewards_mb[i] for a in actions_mb[i]])
-                else:
-                    target = rewards_mb[i] + GAMMA * np.max(Qs_next_state[i])
-                    target_Qs_batch.append([a * target for a in actions_mb[i]])
-
-            targets_mb = np.array([each for each in target_Qs_batch])
-            loss += model.train_on_batch(states_mb, targets_mb)
+            loss += do_training(model, memory)
 
         # if episode % 5 == 0:
         #     save_path = saver.save(sess, "./models/model.ckpt")
