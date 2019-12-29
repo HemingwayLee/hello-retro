@@ -4,7 +4,7 @@ import retro
 def main():
     print(retro.data.list_games())
 
-    env = retro.make(game='SpaceInvaders-Atari2600')
+    env = retro.make(game='Airstriker-Genesis')
     print(f"The size of our frame is: {env.observation_space}")
     print(f"The action size is : {env.action_space.n}")
 
@@ -16,7 +16,8 @@ def main():
         obs, rew, done, info = env.step(env.action_space.sample())
         env.render()
         if done:
-            obs = env.reset()
+            break
+
     env.close()
 
 
