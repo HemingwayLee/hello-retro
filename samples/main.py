@@ -6,7 +6,7 @@ import numpy as np
 from collections import deque
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Activation, Flatten
-from keras.layers.convolutional import Convolution2D, MaxPooling2D
+from keras.layers.convolutional import Convolution2D
 from keras.optimizers import Adam
 from config import *
 from memory import Memory
@@ -14,16 +14,16 @@ from helper import stack_frames
 
 def build_model(action_size, shape, learning_rate=1e-4):
     model = Sequential()
-    model.add(Convolution2D(32, 8, 8, subsample=(4, 4), border_mode='same', input_shape=shape))
+    model.add(Convolution2D(32, 4, 4, border_mode='same', input_shape=shape))
     model.add(Activation('relu'))
-    model.add(Convolution2D(64, 4, 4, subsample=(2, 2), border_mode='same'))
-    model.add(Activation('relu'))
-    model.add(Convolution2D(64, 3, 3, subsample=(1, 1), border_mode='same'))
+    # model.add(Convolution2D(64, 4, 4, border_mode='same'))
+    # model.add(Activation('relu'))
+    model.add(Convolution2D(32, 3, 3, border_mode='same'))
     model.add(Activation('relu'))
     model.add(Flatten())
-    model.add(Dense(256))
+    model.add(Dense(512))
     model.add(Activation('relu'))
-    model.add(Dense(action_size))
+    model.add(Dense(action_size, activation='softmax'))
 
     model.compile(loss='mse', optimizer=Adam(lr=learning_rate))
     
