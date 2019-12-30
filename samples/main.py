@@ -67,12 +67,16 @@ def do_training(model, memory):
     targets_mb = np.array([each for each in target_Qs_batch])
     return model.train_on_batch(states_mb, targets_mb)
 
+# def is_done(prev, curr):
+#     if prev == -1:
+#         return False
+#
+#     if prev == curr:
+#         return False
+#    
+#     return True
+
 def train(env, model, rows, cols, possible_actions):
-    # print("stacked state shape:")
-    # print(stacked_state.shape)
-    # stacked_state = stacked_state.reshape(1, stacked_state.shape[0], stacked_state.shape[1], stacked_state.shape[2]) 
-    # print(stacked_state.shape)
- 
     memory = Memory(memory_size=1000000)
     memory.instantiate_memory(BATCH_SIZE, env, rows, cols, STACK_SIZE, possible_actions)
     
@@ -80,6 +84,7 @@ def train(env, model, rows, cols, possible_actions):
     for episode in range(TOTAL_EPISODES):
         loss = 0
         step = 0
+        prev_lives = -1
         episode_rewards = []
 
         state = env.reset()
@@ -87,15 +92,22 @@ def train(env, model, rows, cols, possible_actions):
         state, stacked_frames = stack_frames(stacked_frames, state, True, (rows, cols), STACK_SIZE)
         
         while step < MAX_STEPS:
-            print(step)
+            # print(step)
             step += 1
             decay_step +=1
             action, explore_probability = predict_action(model, decay_step, state, possible_actions)
-            next_state, reward, done, _ = env.step(action)
-
-            env.render()
             
-            episode_rewards.append(reward)
+            ori_action = convert_back_possible_actions(action)
+            # print(env.get_action_meaning(ori_action))
+
+            # restart everytime we die
+            # next_state, reward, _, info = env.step(ori_action)
+            # done = is_done(prev_lives, info['lives'])
+            # prev_lives = info['lives']
+            
+            next_state, reward, done, _ = env.step(ori_action)
+            episode_rewards.append(reward * 25)
+            # env.render()
             
             if done:
                 # next_state = np.zeros((rows, cols, 3), dtype=np.uint8) # data type need to be correct
@@ -113,13 +125,13 @@ def train(env, model, rows, cols, possible_actions):
                 
             loss += do_training(model, memory)
 
-        if episode % 5 == 0:
+        if episode % 25 == 0:
             print("Save the model now")
             model.save_weights(f"model.{episode}.h5", overwrite=True)
             with open("model.json", "w") as outfile:
                 json.dump(model.to_json(), outfile)
 
-def run(env, model, rows, cols, possible_actions, filename="model.0.h5"):
+def run(env, model, rows, cols, possible_actions, filename="model.150.h5"):
     model.load_weights(filename)
     
     state = env.reset()
@@ -132,7 +144,7 @@ def run(env, model, rows, cols, possible_actions, filename="model.0.h5"):
         choice = np.argmax(Qs)
         action = possible_actions[choice]
         
-        next_state, reward, done, _ = env.step(action)
+        next_state, reward, done, _ = env.step(convert_back_possible_actions(action))
         env.render()
 
         total_rewards += reward
@@ -146,19 +158,43 @@ def run(env, model, rows, cols, possible_actions, filename="model.0.h5"):
 
     env.close()
 
+def convert_back_possible_actions(valid_action):
+    if (valid_action == np.array([1,0,0])).all():
+        return np.array([1,0,0,0,0,0,0,0])
+    elif (valid_action == np.array([0,1,0])).all():
+        return np.array([0,0,0,0,0,0,1,0])
+    elif (valid_action == np.array([0,0,1])).all():
+        return np.array([0,0,0,0,0,0,0,1])
+    else:
+        print(valid_action)
+        print("unexpected error!!!!")
+        return np.array([0,0,0,0,0,0,0,0])
+
+# NOTE: This is Breakout dependent
+def get_valid_actions():
+    valid_actions = np.array([
+        [1,0,0],
+        [0,1,0],
+        [0,0,1]
+    ])
+    
+    return valid_actions
+
 def main(mode):
-    env = retro.make(game='Airstriker-Genesis')
+    env = retro.make(game='Breakout-Atari2600')
+    # env = retro.make(game='Airstriker-Genesis')
     print(f"The size of our frame is: {env.observation_space}")
     print(f"The action size is : {env.action_space.n}")
 
-    possible_actions = np.array(np.identity(env.action_space.n,dtype=int).tolist())
+    possible_actions = get_valid_actions()
+    # possible_actions = np.array(np.identity(env.action_space.n,dtype=int).tolist())
     print(f"possible actions:\n{possible_actions}")
 
     observation = env.reset()
     rows, cols = int(observation.shape[0]/RESIZE_FACTOR), int(observation.shape[1]/RESIZE_FACTOR)
     print(f"rows: {rows}, cols: {cols}")
 
-    model = build_model(env.action_space.n, (rows, cols, STACK_SIZE))
+    model = build_model(len(possible_actions), (rows, cols, STACK_SIZE))
     
     if mode == 'train':
         train(env, model, rows, cols, possible_actions)
